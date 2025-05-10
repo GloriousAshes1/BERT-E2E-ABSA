@@ -377,6 +377,55 @@ class LSTM(nn.Module):
         c_0 = torch.zeros(bs, self.hidden_size).cuda()
         return h_0, c_0
 
+class BiLSTM_CNN(nn.Module):
+    def __init__(self, input_size, hidden_size, cnn_kernels=[3, 5, 7], bidirectional=True):
+        super(BiLSTM_CNN, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size // 2 if bidirectional else hidden_size
+        self.bidirectional = bidirectional
+
+        # BiLSTM layer
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=self.hidden_size,
+            num_layers=1,
+            bidirectional=bidirectional,
+            batch_first=True
+        )
+
+        # CNN layers with different kernel sizes
+        self.convs = nn.ModuleList([
+            nn.Conv1d(hidden_size, hidden_size // len(cnn_kernels), k, padding=k // 2)
+            for k in cnn_kernels
+        ])
+
+        # Layer normalization
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+    def forward(self, x):
+        # BiLSTM processing
+        lstm_output, _ = self.lstm(x)  # shape: (batch_size, seq_len, hidden_size)
+
+        # CNN processing
+        # Transpose for CNN: (batch_size, seq_len, hidden_size) -> (batch_size, hidden_size, seq_len)
+        cnn_input = lstm_output.transpose(1, 2)
+
+        # Apply multiple CNNs with different kernel sizes
+        conv_outputs = []
+        for conv in self.convs:
+            conv_output = conv(cnn_input)  # shape: (batch_size, hidden_size//len(kernels), seq_len)
+            conv_outputs.append(conv_output)
+
+        # Concatenate outputs from different CNNs
+        combined = torch.cat(conv_outputs, dim=1)  # shape: (batch_size, hidden_size, seq_len)
+
+        # Transpose back: (batch_size, hidden_size, seq_len) -> (batch_size, seq_len, hidden_size)
+        output = combined.transpose(1, 2)
+
+        # Apply layer normalization
+        output = self.layer_norm(output)
+
+        return output, None
 
 class BertABSATagger(BertPreTrainedModel):
     def __init__(self, bert_config):
@@ -426,6 +475,11 @@ class BertABSATagger(BertPreTrainedModel):
                 self.tagger = SAN(d_model=bert_config.hidden_size, nhead=12, dropout=0.1)
             elif self.tagger_config.absa_type == 'crf':
                 self.tagger = CRF(num_tags=self.num_labels)
+            elif self.tagger_config.absa_type == 'bilstm_cnn':
+                # BiLSTM-CNN layer
+                self.tagger = BiLSTM_CNN(input_size=bert_config.hidden_size,
+                                         hidden_size=self.tagger_config.hidden_size,
+                                         bidirectional=self.tagger_config.bidirectional)
             else:
                 raise Exception('Unimplemented downstream tagger %s...' % self.tagger_config.absa_type)
             penultimate_hidden_size = self.tagger_config.hidden_size
@@ -455,6 +509,9 @@ class BertABSATagger(BertPreTrainedModel):
                 tagger_input = tagger_input.transpose(0, 1)
                 classifier_input = self.tagger(tagger_input)
                 classifier_input = classifier_input.transpose(0, 1)
+            elif self.tagger_config.absa_type == 'bilstm_cnn':
+                # BiLSTM-CNN
+                classifier_input, _ = self.tagger(tagger_input)
             else:
                 raise Exception("Unimplemented downstream tagger %s..." % self.tagger_config.absa_type)
             classifier_input = self.tagger_dropout(classifier_input)
@@ -556,3 +613,5 @@ class XLNetABSATagger(XLNetPreTrainedModel):
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
             outputs = (loss,) + outputs
         return outputs
+
+
