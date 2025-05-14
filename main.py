@@ -257,12 +257,12 @@ def train(args, train_dataset, model, tokenizer):
 
 def evaluate(args, model, tokenizer, mode, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
-    eval_task_names = (args.task_name,)
-    eval_outputs_dirs = (args.output_dir,)
+    eval_task_names = (args.task_name,)#rest14/laptop14
+    eval_outputs_dirs = (args.output_dir,)# bert-absa_type-rest14-finetune(model_type-absa_type-task_name-tfm_mode)
 
     results = {}
-    for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-        eval_dataset, eval_evaluate_label_ids = load_and_cache_examples(args, eval_task, tokenizer, mode=mode)
+    for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):# eval_task=rest14, eval_output_dir=bert-absa_type-rest14-finetune
+        eval_dataset, eval_evaluate_label_ids = load_and_cache_examples(args, eval_task, tokenizer, mode=mode)# mode = dev/test, tokeninzer = BertTokenizer
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -273,7 +273,7 @@ def evaluate(args, model, tokenizer, mode, prefix=""):
         eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
 
         # Eval!
-        #logger.info("***** Running evaluation on %s.txt *****" % mode)
+        logger.info("***** Running evaluation on %s.txt *****" % mode)
         eval_loss = 0.0
         nb_eval_steps = 0
         preds = None
@@ -341,7 +341,7 @@ def load_and_cache_examples(args, task, tokenizer, mode='train'):
         print("cached_features_file:", cached_features_file)
         features = torch.load(cached_features_file)
     else:
-        #logger.info("Creating features from dataset file at %s", args.data_dir)
+        logger.info("Creating features from dataset file at %s", args.data_dir)
         label_list = processor.get_labels(args.tagging_schema)
         if mode == 'train':
             examples = processor.get_train_examples(args.data_dir, args.tagging_schema)
